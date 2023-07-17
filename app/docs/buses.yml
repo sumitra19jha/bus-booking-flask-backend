@@ -1,0 +1,6 @@
+tags:
+  - Buses
+description: Get all buses in a city
+responses:
+  200:
+    description: Successfully retrieved buses

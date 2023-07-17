@@ -1,0 +1,19 @@
+tags:
+  - Cities
+description: Get all cities or search for cities by name
+parameters:
+  - name: query
+    in: query
+    description: Search query to filter cities by name (optional)
+    required: false
+    type: string
+responses:
+  200:
+    description: Successful response
+    schema:
+      type: object
+      properties:
+        cities:
+          type: array
+          items:
+            type: string

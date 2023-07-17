@@ -1,0 +1,28 @@
+tags:
+  - Users
+description: Login with email and password
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+responses:
+  200:
+    description: Successfully logged in
+  400:
+    description: Invalid request body or missing required fields
+  401:
+    description: Incorrect password
+  404:
+    description: No customer with that email found
+  500:
+    description: Internal server error occurred

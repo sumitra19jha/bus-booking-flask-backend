@@ -1,0 +1,29 @@
+tags:
+  - Users
+description: Sign up a new user
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - first_name
+        - email
+        - password
+responses:
+  200:
+    description: Successfully signed up
+  400:
+    description: Invalid request body or missing required fields
+  500:
+    description: Internal server error occurred

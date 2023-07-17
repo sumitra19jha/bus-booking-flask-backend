@@ -1,0 +1,43 @@
+tags:
+  - Bus Booking
+description: Book a bus by checking seat availability on a given date.
+parameters:
+  - name: Authorization
+    in: header
+    required: true
+    type: string
+    description: The authentication token.
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        session_id:
+          type: string
+        bus_id:
+          type: integer
+        booking_date:
+          type: string
+          format: date
+        seats_booked:
+          type: integer
+      required:
+        - user_id
+        - session_id
+        - bus_id
+        - booking_date
+        - seats_booked
+responses:
+  200:
+    description: Bus booked successfully
+  400:
+    description: Invalid request body or booking parameters
+  401:
+    description: Invalid session ID
+  404:
+    description: Invalid bus ID
+  500:
+    description: Internal server error occurred

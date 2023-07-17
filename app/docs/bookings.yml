@@ -1,0 +1,6 @@
+tags:
+  - Bookings
+description: Get booking history of a user
+responses:
+  200:
+    description: Successfully retrieved bookings

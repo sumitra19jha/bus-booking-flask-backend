@@ -1,0 +1,24 @@
+tags:
+  - Users
+description: Verify user email with OTP
+parameters:
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        otp:
+          type: string
+        email:
+          type: string
+      required:
+        - otp
+        - email
+responses:
+  200:
+    description: Email verified successfully
+  400:
+    description: Invalid or expired OTP
+  404:
+    description: User not found
