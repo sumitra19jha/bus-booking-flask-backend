@@ -42,6 +42,7 @@ class Bus(db.Model):
     city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
     name = db.Column(db.String(50), nullable=False)
     capacity = db.Column(db.Integer, nullable=False)
+    bus_no = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 

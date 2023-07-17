@@ -24,7 +24,7 @@ def create_app():
     from app.swagger import configure_swagger
     configure_swagger(app)
 
-    from app.views import views
-    app.register_blueprint(views)
+    from app.routes import routes
+    app.register_blueprint(routes)
 
     return app

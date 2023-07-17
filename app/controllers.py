@@ -1,15 +1,10 @@
-import secrets
-from flask import Blueprint, jsonify, request, current_app
+import bcrypt
+from flask import jsonify, request, current_app
 from datetime import datetime, timedelta
-from werkzeug.security import check_password_hash, generate_password_hash
 from app.models import Customer, Session, City, Bus, Booking
 from flasgger import swag_from
 from app.mail import generate_random_session_id, send_otp, verify_otp
-from app.utils import authenticate
 
-views = Blueprint("views", __name__)
-
-@views.route('/signup', methods=['POST'])
 @swag_from('docs/signup.yml')
 def signup():
     data = request.get_json()
@@ -22,7 +17,7 @@ def signup():
     if not all([first_name, email, password]):
         return jsonify({"error": "First name, email and password are required"}), 400
 
-    hashed_password = generate_password_hash(password)
+    hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
     existing_customer = Customer.query.filter_by(email=email).first()
 
     if existing_customer and existing_customer.email_verified == 'unverified':
@@ -35,19 +30,18 @@ def signup():
         first_name=first_name,
         last_name=last_name,
         email=email,
-        password=hashed_password,
+        password=hashed_password.decode("utf-8"),
     )
     current_app.db.session.add(new_customer)
     try:
         current_app.db.session.commit()
         send_otp(email)
-    except:
+    except Exception as e:
         current_app.db.session.rollback()
         return jsonify({"error": "Error occurred while signing up. Please try again."}), 500
 
     return jsonify({"message": "Signup successful. Please verify your email with the OTP sent"}), 200
 
-@views.route('/verify', methods=['POST'])
 @swag_from('docs/verify.yml')
 def verify():
     data = request.get_json()
@@ -80,7 +74,6 @@ def verify():
     
     return jsonify({"message": "Email verified successfully", "user_id": customer.id, "session_id": session_id}), 200
 
-@views.route('/login', methods=['POST'])
 @swag_from('docs/login.yml')
 def login():
     data = request.get_json()
@@ -93,8 +86,9 @@ def login():
     customer = Customer.query.filter_by(email=email).first()
     if not customer:
         return jsonify({"error": "No customer with that email found"}), 404
-
-    if not check_password_hash(customer.password, password):
+    print(password.encode("utf-8"))
+    print(customer.password.encode("utf-8"))
+    if not bcrypt.checkpw(password.encode("utf-8"), customer.password.encode("utf-8")):
         return jsonify({"error": "Incorrect password"}), 401
 
     # Generate and save a new session for the user
@@ -111,9 +105,7 @@ def login():
 
     return jsonify({"message": "Login successful", "user_id": customer.id, "session_id": session_id}), 200
 
-@views.route('/cities', methods=['GET'])
 @swag_from('docs/cities.yml')
-@authenticate
 def cities():
     search_query = request.args.get('query')
     if search_query:
@@ -125,7 +117,6 @@ def cities():
 
     return jsonify({"cities": city_list}), 200
 
-@views.route('/buses', methods=['GET'])
 @swag_from('docs/buses.yml')
 def buses_in_city():
     buses = Bus.query.all()
@@ -133,78 +124,61 @@ def buses_in_city():
     for bus in buses:
         bus_data = {
             'id': bus.id,
-            'name': bus.name,
-            'capacity': bus.capacity,
-            'city_id': bus.city_id,
-            'created_at': bus.created_at,
-            'updated_at': bus.updated_at
+            'city': bus.city.city_name,
+            'destination': bus.destination.city_name,
+            'departure_time': bus.departure_time.strftime("%H:%M"),
+            'arrival_time': bus.arrival_time.strftime("%H:%M"),
+            'bus_company': bus.bus_company.company_name,
+            'available_seats': bus.capacity - len(bus.bookings),
+            'price': bus.price
         }
         bus_list.append(bus_data)
-    return jsonify(bus_list), 200
 
+    return jsonify({"buses": bus_list}), 200
 
-@views.route('/bookings', methods=['GET'])
 @swag_from('docs/bookings.yml')
-@authenticate
-def get_bookings():
-    bookings = Booking.query.all()
-    booking_list = []
+def get_bookings(user_id):
+    bookings = Booking.query.filter_by(user_id=user_id).all()
+    bookings_list = []
     for booking in bookings:
-        booking_info = {
-            'booking_id': booking.id,
-            'customer_id': booking.customer_id,
+        booking_data = {
+            'id': booking.id,
             'bus_id': booking.bus_id,
-            'booking_date': booking.booking_date.strftime('%Y-%m-%d %H:%M:%S'),
-            'seats_booked': booking.seats_booked
+            'seat_number': booking.seat_number,
+            'price': booking.price,
+            'status': booking.status
         }
-        booking_list.append(booking_info)
-    return jsonify({'bookings': booking_list}), 200
+        bookings_list.append(booking_data)
 
-@views.route('/book_bus', methods=['POST'])
+    return jsonify({"bookings": bookings_list}), 200
+
 @swag_from('docs/book_bus.yml')
-@authenticate
-def book_bus():
+def book_bus(user_id):
     data = request.get_json()
-    user_id = data.get('user_id')
-    session_id = data.get('session_id')
     bus_id = data.get('bus_id')
-    booking_date = data.get('booking_date')
-    seats_booked = data.get('seats_booked')
+    seat_number = data.get('seat_number')
 
-    if not all([user_id, session_id, bus_id, booking_date, seats_booked]):
-        return jsonify({"error": "User ID, Session ID, Bus ID, Booking Date, and Seats Booked are required"}), 400
-
-    session = Session.query.filter_by(user_id=user_id, session_id=session_id, status='active').first()
-    if not session:
-        return jsonify({"error": "Invalid session"}), 401
+    if not all([bus_id, seat_number]):
+        return jsonify({"error": "Bus id and seat number are required"}), 400
 
     bus = Bus.query.get(bus_id)
     if not bus:
-        return jsonify({"error": "Invalid bus ID"}), 404
+        return jsonify({"error": "Bus not found"}), 404
 
-    if seats_booked > bus.capacity:
-        return jsonify({"error": "Seats booked exceed bus capacity"}), 400
+    if seat_number < 1 or seat_number > bus.capacity:
+        return jsonify({"error": "Seat number is invalid"}), 400
 
-    booking_date = datetime.strptime(booking_date, '%Y-%m-%d').date()
-    total_booked_seats = Booking.query.filter_by(bus_id=bus_id, booking_date=booking_date).sum('seats_booked')
-    if total_booked_seats is None:
-        total_booked_seats = 0
+    booking = Booking.query.filter_by(bus_id=bus_id, seat_number=seat_number).first()
+    if booking:
+        return jsonify({"error": "Seat is already booked"}), 400
 
-    available_seats = bus.capacity - total_booked_seats
-    if seats_booked > available_seats:
-        return jsonify({"error": "Seats booked exceed available seats"}), 400
-
-    new_booking = Booking(
-        customer_id=session.user_id,
-        bus_id=bus_id,
-        booking_date=booking_date,
-        seats_booked=seats_booked
-    )
+    new_booking = Booking(user_id=user_id, bus_id=bus_id, seat_number=seat_number, price=bus.price, status='confirmed')
     current_app.db.session.add(new_booking)
+
     try:
         current_app.db.session.commit()
     except:
         current_app.db.session.rollback()
-        return jsonify({"error": "Error occurred while booking the bus. Please try again."}), 500
+        return jsonify({"error": "Error occurred while booking. Please try again."}), 500
 
-    return jsonify({"message": "Bus booked successfully"}), 200
+    return jsonify({"message": "Booking successful", "booking_id": new_booking.id}), 200
