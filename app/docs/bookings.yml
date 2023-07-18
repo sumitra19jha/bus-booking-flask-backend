@@ -1,6 +1,12 @@
 tags:
   - Bookings
 description: Get booking history of a user
+parameters:
+  - name: Authorization
+    in: header
+    required: true
+    type: string
+    description: The authentication token.
 responses:
   200:
     description: Successfully retrieved bookings

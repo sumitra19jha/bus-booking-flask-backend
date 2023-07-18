@@ -20,6 +20,10 @@ def authenticate(func):
             session.status = 'logged_out'
             db.session.commit()
             return jsonify({"error": "Session expired"}), 401
+        
+        request.session =  session
+        request.session_id = session_id
+        request.user_id = session.user_id
 
         return func(*args, **kwargs)
 

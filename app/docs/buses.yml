@@ -1,6 +1,12 @@
 tags:
-  - Buses
+  - Home
 description: Get all buses in a city
+parameters:
+  - name: city_id
+    in: query
+    description: Search query to filter cities by name (optional)
+    required: false
+    type: integer
 responses:
   200:
     description: Successfully retrieved buses
