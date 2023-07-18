@@ -13,16 +13,12 @@ parameters:
     schema:
       type: object
       properties:
-        bus_id:
+        route_id:
           type: integer
-        booking_date:
-          type: string
-          format: date
         seats_booked:
           type: integer
       required:
         - bus_id
-        - booking_date
         - seats_booked
 responses:
   200:

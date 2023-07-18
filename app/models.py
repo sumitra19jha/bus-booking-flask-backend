@@ -39,10 +39,23 @@ class Bus(db.Model):
     __tablename__ = 'bus'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
     name = db.Column(db.String(50), nullable=False)
     capacity = db.Column(db.Integer, nullable=False)
     bus_no = db.Column(db.String(50), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+    routes = db.relationship('Route', backref='bus', lazy=True)
+
+class Route(db.Model):
+    __tablename__ = 'route'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    origin_city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
+    destination_city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
+    bus_id = db.Column(db.Integer, db.ForeignKey('bus.id'), nullable=False)
+    departure_time = db.Column(db.DateTime, nullable=False)
+    arrival_time = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
@@ -52,8 +65,20 @@ class Booking(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    bus_id = db.Column(db.Integer, db.ForeignKey('bus.id'), nullable=False)
-    booking_date = db.Column(db.DateTime, nullable=False)
+    route_id = db.Column(db.Integer, db.ForeignKey('route.id'), nullable=False)
     seats_booked = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.Enum('confirmed', 'cancelled', 'pending', name='booking_status'), default='pending', nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+
+class Payment(db.Model):
+    __tablename__ = 'payment'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('booking.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(50), nullable=False)
+    payment_status = db.Column(db.Enum('success', 'failed', 'pending', name='payment_status'), default='pending', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)

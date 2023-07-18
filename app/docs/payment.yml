@@ -1,0 +1,39 @@
+tags:
+  - Payments
+description: Process payment for a bus booking
+parameters:
+  - name: Authorization
+    in: header
+    required: true
+    type: string
+    description: The authentication token.
+  - name: body
+    in: body
+    required: true
+    schema:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+        amount:
+          type: float
+        payment_method:
+          type: string
+        payment_status:
+          type: string
+      required:
+        - booking_id
+        - amount
+        - payment_method
+        - payment_status
+responses:
+  200:
+    description: Payment processed successfully
+  400:
+    description: Invalid request body or payment parameters
+  401:
+    description: Invalid session ID
+  404:
+    description: Booking not found
+  500:
+    description: Internal server error occurred

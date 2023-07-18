@@ -1,7 +1,10 @@
 import bcrypt
 from flask import jsonify, request, current_app
 from datetime import datetime, timedelta
-from app.models import Customer, Session, City, Bus, Booking
+
+from sqlalchemy.orm import aliased
+from sqlalchemy import func
+from app.models import Customer, Payment, Route, Session, City, Bus, Booking
 from flasgger import swag_from
 from app.utils import authenticate
 from app.mail import generate_random_session_id, send_otp, verify_otp
@@ -109,39 +112,65 @@ def login():
 @swag_from('docs/cities.yml')
 def cities():
     search_query = request.args.get('query')
+
     if search_query:
         filtered_cities = City.query.filter(City.city_name.ilike(f"%{search_query}%")).all()
-        city_list = [city.city_name for city in filtered_cities]
+        city_list = []
+        for city in filtered_cities:
+            route = Route.query.filter_by(origin_city_id=city.id).first()
+            if route is not None:
+                bus = Bus.query.filter_by(id=route.bus_id).first()
+                city_list.append({"name": city.city_name, "bus": bus.name if bus else None})
     else:
         all_cities = City.query.all()
-        city_list = [city.city_name for city in all_cities]
+        city_list = []
+        for city in all_cities:
+            route = Route.query.filter_by(origin_city_id=city.id).first()
+            if route is not None:
+                bus = Bus.query.filter_by(id=route.bus_id).first()
+                city_list.append({"city_name": city.city_name, "bus": bus.name if bus else None})
 
     return jsonify({"cities": city_list}), 200
 
 @swag_from('docs/buses.yml')
 def buses_in_city():
-    city_id = request.args.get('city_id')
-    if city_id == None:
-        return jsonify({"error": "City ID is required"}), 400
+    bus_id = request.args.get('bus_id')
+    if bus_id:
+        bus_id = int(bus_id)
+        buses = [Bus.query.get(bus_id)]
+        if buses[0] is None:  # If the bus does not exist
+            return jsonify({"error": "Bus with given ID does not exist"}), 404
     else:
-        city_id = int(city_id)
-    
-    buses = Bus.query.filter(Bus.city_id == city_id).all()
+        buses = Bus.query.all()
+
     bus_list = []
 
     for bus in buses:
+        routes = Route.query.filter_by(bus_id=bus.id).all()
+
+        route_list = []
+        for route in routes:
+            origin_city = City.query.get(route.origin_city_id).city_name
+            destination_city = City.query.get(route.destination_city_id).city_name
+
+            route_list.append({
+                "route_id": route.id,
+                "origin_city": origin_city,
+                "destination_city": destination_city,
+                "departure_date": route.departure_time.strftime("%dth %B"),
+                "departure_time": route.departure_time.strftime("%H:%M"),
+                "arrival_time": route.arrival_time.strftime("%H:%M"),
+                "arrival_date": route.arrival_time.strftime("%dth %B"),
+            })
+
         bus_data = {
             'id': bus.id,
-            'city_id': bus.city_id,
             'name': bus.name,
             'capacity': bus.capacity,
             'bus_number': bus.bus_no,
-            # 'departure_time': bus.departure_time.strftime("%H:%M"),
-            # 'arrival_time': bus.arrival_time.strftime("%H:%M"),
-            # 'bus_company': bus.bus_company.company_name,
-            # 'available_seats': bus.capacity - len(bus.bookings),
-            # 'price': bus.price
+            'routes': route_list,
         }
+
         bus_list.append(bus_data)
 
     return jsonify({"buses": bus_list}), 200
@@ -149,14 +178,28 @@ def buses_in_city():
 @swag_from('docs/bookings.yml')
 @authenticate
 def get_bookings():
-    bookings = Booking.query.filter_by(customer_id=request.user_id).all()
+    Origin = aliased(City)
+    Destination = aliased(City)
+
+    bookings = current_app.db.session.query(Booking, Route, Bus, Origin, Destination).\
+                join(Route, Booking.route_id == Route.id).\
+                join(Bus, Route.bus_id == Bus.id).\
+                join(Origin, Route.origin_city_id == Origin.id).\
+                join(Destination, Route.destination_city_id == Destination.id).\
+                filter(Booking.customer_id == request.user_id).all()
+
     bookings_list = []
-    for booking in bookings:
+    for booking, route, bus, origin_city, destination_city in bookings:
         booking_data = {
             'id': booking.id,
-            'bus_id': booking.bus_id,
+            'bus_name': bus.name,
+            'bus_number': bus.bus_no,
+            'route_id': route.id,
+            'origin_city_name': origin_city.city_name,
+            'destination_city_name': destination_city.city_name,
             'seat_number': booking.seats_booked,
-            'booking_date': booking.booking_date
+            'booking_date': booking.created_at.strftime("%m/%d/%Y, %H:%M:%S"),
+            'booking_status': booking.status
         }
         bookings_list.append(booking_data)
 
@@ -166,31 +209,61 @@ def get_bookings():
 @authenticate
 def book_bus():
     data = request.get_json()
-    bus_id = data.get('bus_id')
-    seat_number = data.get('seats_booked')
-    booking_date = data.get('booking_date')
+    route_id = data.get('route_id')
+    seats_booked = data.get('seats_booked')
 
-    if not all([bus_id, seat_number]):
-        return jsonify({"error": "Bus id and seat number are required"}), 400
+    # Fetch the route
+    route = Route.query.get(route_id)
+    if not route:
+        return jsonify({"error": "Route not found"}), 404
 
-    bus = Bus.query.filter(Bus.id == bus_id).first()
-    if not bus:
-        return jsonify({"error": "Bus not found"}), 404
+    # Check if there are enough seats available
+    total_booked_seats = current_app.db.session.query(func.sum(Booking.seats_booked)).filter(Booking.route_id == route_id).scalar() or 0
+    available_seats = route.bus.capacity - total_booked_seats
 
-    if seat_number < 1 or seat_number > bus.capacity:
-        return jsonify({"error": "Seat number is invalid"}), 400
+    if seats_booked > available_seats:
+        return jsonify({"error": "Not enough seats available"}), 400
 
-    booking = Booking.query.filter_by(bus_id=bus_id, seats_booked=seat_number, booking_date=booking_date).first()
-    if booking:
-        return jsonify({"error": "Seat is already booked"}), 400
+    # Create a new booking
+    new_booking = Booking(
+        customer_id=request.user_id, 
+        route_id=route_id, 
+        seats_booked=seats_booked, 
+        status='pending'
+    )
 
-    new_booking = Booking(customer_id=request.user_id, bus_id=bus_id, booking_date=booking_date, seats_booked=seat_number)
     current_app.db.session.add(new_booking)
+    current_app.db.session.commit()
 
-    try:
-        current_app.db.session.commit()
-    except:
-        current_app.db.session.rollback()
-        return jsonify({"error": "Error occurred while booking. Please try again."}), 500
+    return jsonify({"booking_id": new_booking.id, "message": "Booking successful, status is pending"}), 201
 
-    return jsonify({"message": "Booking successful", "booking_id": new_booking.id}), 200
+@swag_from('docs/payment.yml')
+@authenticate
+def payment():
+    data = request.get_json()
+
+    booking_id = data.get('booking_id')
+    amount = data.get('amount')
+    payment_method = data.get('payment_method')
+    payment_status = data.get('payment_status')
+
+    booking = Booking.query.get(booking_id)
+    if not booking:
+        return jsonify({'message': 'Booking not found'}), 404
+
+    payment = Payment(
+        booking_id=booking_id,
+        amount=amount,
+        payment_method=payment_method,
+        payment_status=payment_status
+    )
+
+    current_app.db.session.add(payment)
+
+    if payment_status == 'success':
+        booking.status = 'confirmed'
+        current_app.db.session.add(booking)
+
+    current_app.db.session.commit()
+
+    return jsonify({'message': 'Payment processed successfully'}), 200
